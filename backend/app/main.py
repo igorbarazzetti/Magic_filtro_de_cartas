@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 
 app = FastAPI(title="Magic MTG Finder Proxy")
@@ -19,7 +19,7 @@ app.add_middleware(
 )
 
 SCRYFALL_BASE = "https://api.scryfall.com"
-FRONTEND_FILE = Path(__file__).resolve().parents[1] / "magic-mtg-landing.html"
+FRONTEND_FILE = Path(__file__).resolve().parents[2] / "magic-mtg-landing.html"
 TIMEOUT_SECONDS = 20.0
 
 

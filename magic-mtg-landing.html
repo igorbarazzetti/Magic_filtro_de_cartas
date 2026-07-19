@@ -1175,8 +1175,8 @@
           return true;
         }
         if (message.includes('not_found')) return true;
-        if (details.includes('did not match any cards') || details.includes('didn\\'t match any cards') || details.includes('didnt match any cards')) return true;
-        if (normalizedBody.includes('did not match any cards') || normalizedBody.includes('didn\\'t match any cards') || normalizedBody.includes('didnt match any cards')) return true;
+        if (details.includes('did not match any cards') || details.includes("didn't match any cards") || details.includes('didnt match any cards')) return true;
+        if (normalizedBody.includes('did not match any cards') || normalizedBody.includes("didn't match any cards") || normalizedBody.includes('didnt match any cards')) return true;
         if (message.includes('your query didn')) return true;
         if (details.includes('your query didn')) return true;
         if (message.includes('didnt match any cards')) return true;

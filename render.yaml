@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: magic-mtg-finder
+    env: python
+    region: oregon
+    plan: free
+    rootDir: .
+    buildCommand: |
+      pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true

@@ -401,7 +401,12 @@
     </main>
 
     <script>
-      const API_BASE = 'https://api.scryfall.com';
+      const API_QUERY_BASE = new URLSearchParams(window.location.search).get('api');
+      const API_BASE = API_QUERY_BASE
+        ? API_QUERY_BASE
+        : window.location.protocol === 'file:'
+          ? 'https://api.scryfall.com'
+          : `${window.location.origin}/api/scryfall`;
       const SEARCH_LIMIT = 18;
       const SIMILAR_LIMIT = 10;
       const AUTOCOMPLETE_DELAY_MS = 220;

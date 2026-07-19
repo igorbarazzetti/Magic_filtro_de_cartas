@@ -1,106 +1,71 @@
-﻿# Magic MTG Finder (local)
+# Magic MTG Finder — Landing page com busca + recomendação de cartas parecidas
 
-Uma landing page single-file para buscar cartas de *Magic: The Gathering* na API do Scryfall, visualizar detalhes e obter recomendações de cartas parecidas com foco em mecânica principal e semântica de texto.
+Aplicação para pesquisar cartas de **Magic: The Gathering** (Scryfall), abrir detalhes e sugerir cartas similares com score e justificativas.
 
-## Visão geral
+## O que foi implementado
 
-`magic-mtg-landing.html` é uma aplicação em HTML/CSS/JavaScript puro (sem backend), com:
+- Busca textual e autocomplete.
+- Render de carta com arte, mana, tipo, raridade e detalhes.
+- Cartas de duas faces com rotação de face.
+- Painel de **Mais parecidas** com ranking por similaridade e motivos.
+- Backend minimalista em **Python + FastAPI** para centralizar as chamadas ao Scryfall e funcionar bem em produção.
 
-- Busca textual de cartas por nome, cor, tipo ou texto
-- Autocomplete com sugestões em tempo real
-- Lista de resultados com imagem, nome, custo, tipo e raridade
-- Visualização de detalhes da carta selecionada
-- Rotação de faces em cartas duais
-- Painel de **mais parecidas** com score, barra de similaridade e explicação por carta
+## Estrutura do projeto
 
-## O que já foi implementado
+- `magic-mtg-landing.html`: frontend (HTML/CSS/JS) da aplicação.
+- `backend/requirements.txt`: dependências Python.
+- `backend/app/main.py`: proxy FastAPI para Scryfall + serve da landing page.
+- `backend/app/__init__.py`: pacote Python.
+- `render.yaml`: configuração de deploy automático no Render.
 
-### Busca e autocomplete
+## Arquitetura
 
-- Campo de busca ligado à rota `/cards/search` da Scryfall
-- Debounce na digitação para reduzir requisições
-- Sugestões em `datalist` e dropdown customizado
-- Tratamento de erro sem quebrar a interface
+- O frontend local (arquivo `.html`) usa:
+  - `https://api.scryfall.com` quando aberto como `file://` (desenvolvimento local simples).
+  - `/api/scryfall/...` quando servido por HTTP (produção).
+- O backend:
+  - recebe `/api/scryfall/*`
+  - repassa para a Scryfall
+  - retorna a resposta sem mudar payload
+  - serve também `magic-mtg-landing.html` na raiz.
 
-### Render de cartas e interação
+## Como rodar localmente
 
-- Grid de resultados responsivo
-- Cartas clicáveis para abrir detalhes
-- Cartas com duas faces: botão para alternar a face no card e no painel de detalhes
-- Render de símbolo de mana por cor com fallback textual
+### Opção 1 — só frontend (rápida)
+1. Abra `magic-mtg-landing.html` diretamente no navegador.
 
-### Motor de similaridade
-
-- Construção de perfil de carta (`CardProfile`) com:
-  - Tipo principal, supertipos e subtipos
-  - Identidade de cor e vetor de mana
-  - CMC
-  - Poder/resistência/loyalty
-  - Raridade
-  - Keywords e mecânicas principais
-  - Sinais de fase
-  - Assinaturas semânticas de texto e intenção
-
-- Coleta de candidatos em estágios:
-  1. Tipo + cor + CMC (janela estreita)
-  2. + mecânicas principais
-  3. + fallback de janelas de CMC mais amplas
-  4. Estágio de segurança para preencher o mínimo de sugestões
-
-- Rankeamento com pesos por componente e prioridade de mecânica principal
-- Dedupe por `oracle_id`
-- Corte progressivo por threshold para manter retorno estável
-- Motivos automáticos de similaridade para cada carta sugerida
-- Mensagem de fallback quando o estágio estrito não produz volume suficiente
-- Proteção contra falha de API, mantendo o painel ativo e sem crash
-
-### Robustez e performance
-
-- Cache de consultas e de perfis em memória com TTL
-- Limite de chamadas por carta controlado por constantes
-- Perfil de falha explícito quando não houver dados suficientes
-
-## Estrutura
-
-- `magic-mtg-landing.html`: aplicação completa (HTML + CSS + JS)
-- `README.md`: este arquivo de documentação
-
-## Como executar
-
-1. Copie ou clone o repositório
-2. Abra `magic-mtg-landing.html` diretamente no navegador
-3. Se preferir, rode um servidor local:
-
+### Opção 2 — com backend local (igual ao que vai para produção)
 ```bash
-cd Magic_filtro_de_cartas
-python -m http.server 5173
+cd C:\Users\igor\OneDrive\Documentos\Magic_filtro_de_cartas
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r backend/requirements.txt
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Acesse: `http://localhost:5173/magic-mtg-landing.html`
+- Abra: `http://127.0.0.1:8000/magic-mtg-landing.html`
+- Healthcheck: `http://127.0.0.1:8000/api/health`
 
-## Configurações importantes
+## Como publicar no Render (sem ajustes de código)
 
-- `SIMILAR_LIMIT`: quantidade máxima de similares exibidos
-- `SIMILARITY_MIN_SCORE`: limiar principal
-- `SIMILARITY_RELAXED_SCORE`: limiar usado em fallback
-- `MAX_CANDIDATE_FETCH_QUERIES`: limite de buscas extras para recomendação
-- `SIMILAR_CANDIDATE_FETCH_LIMIT`: máximo de cartas retornadas por consulta
-- TTLs de cache para otimizar chamadas repetidas
+1. Faça commit/push da pasta no GitHub.
+2. No Render, conecte o repositório e escolha **New + Blueprint**.
+3. O `render.yaml` já descreve tudo:
+   - build: `pip install -r backend/requirements.txt`
+   - start: `uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`
+   - healthcheck: `/api/health`
+4. Após deploy, acesse a URL pública gerada.
+5. Teste no navegador:
+   - `https://<seu-app>.onrender.com/magic-mtg-landing.html`
+   - `https://<seu-app>.onrender.com/api/health`
+   - `https://<seu-app>.onrender.com/api/scryfall/cards/search?q=name:lightning%20bolt`
 
-## Limitações atuais
+## Observações importantes
 
-- Depende da disponibilidade e de rate limit da Scryfall
-- A qualidade semântica ainda é heurística e pode ter ruído em textos muito atípicos
-- Não há persistência de favoritos, histórico persistente ou autenticação
-
-## Próximos passos sugeridos
-
-- Adicionar filtros de UI (tipo, cor, faixa de custo, raridade)
-- Salvar estado/favoritos no `localStorage`
-- Aprimorar normalização semântica de textos com sinais causais mais profundos
-- Exportar listas de similares para plano de teste/deck
-- Adicionar testes funcionais no frontend (Playwright)
+- O proxy permite manter a app funcionando no domínio oficial da Render com a mesma interface, sem alterar o restante do frontend.
+- A lógica de similaridade permanece no frontend (HTML único).
+- Limite atual de chamadas auxiliares de recomendação segue as constantes do JS no arquivo principal.
 
 ## Licença
 
-Uso livre para estudo e prototipagem pessoal.
+Uso pessoal e educacional.

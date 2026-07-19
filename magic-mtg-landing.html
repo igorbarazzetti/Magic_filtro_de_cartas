@@ -3381,6 +3381,14 @@
           cards.forEach((card) => dedupeCard(card, stage, query));
           return cards;
         };
+        const runHardFallbackQuery = async (query, stage = 5) => {
+          const normalizedQuery = getQueryCacheKey(query);
+          if (!normalizedQuery || queryHistory.has(normalizedQuery)) return [];
+          queryHistory.add(normalizedQuery);
+          const cards = await searchCardsByQuery(query, perQueryLimit);
+          cards.forEach((card) => dedupeCard(card, stage, query));
+          return cards;
+        };
 
         const stagesByOrder = [1, 2, 3, 4];
         const runStage = async (stage, maxPerStage = 1, offset = 0) => {
@@ -3439,6 +3447,27 @@
             const remainingQueries = Math.max(1, queryLimit - queryHistory.size);
             const budgetedQueries = Math.min(2, remainingQueries, stages[stage].length);
             await runStage(stage, budgetedQueries);
+          }
+
+          if (candidateMap.size === 0 && stageLimit >= 4) {
+            const broadTypeFallback =
+              '(type:creature OR type:artifact OR type:enchantment OR type:planeswalker OR type:instant OR type:sorcery OR type:land)';
+            const hardFallbackQueries = [
+              joinQueryClauses(typeClause, nameExclusion),
+              joinQueryClauses(colorClause, nameExclusion),
+              joinQueryClauses(cmcClauseFallback, nameExclusion),
+              joinQueryClauses(oracleFallbackClause, nameExclusion),
+              joinQueryClauses(broadTypeFallback, nameExclusion),
+              joinQueryClauses('type:creature', nameExclusion),
+              joinQueryClauses('type:artifact', nameExclusion),
+              joinQueryClauses('type:planeswalker', nameExclusion),
+              nameExclusion || 'type:creature',
+            ].filter(Boolean);
+
+            for (const fallbackQuery of hardFallbackQueries) {
+              if (candidateMap.size >= SIMILAR_LIMIT) break;
+              await runHardFallbackQuery(fallbackQuery, 5);
+            }
           }
 
           safeState.candidateMap = candidateMap;

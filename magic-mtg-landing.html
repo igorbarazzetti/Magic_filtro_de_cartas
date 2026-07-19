@@ -1141,15 +1141,33 @@
       }
 
       async function searchCardsByQuery(query, limit = SIMILAR_CANDIDATE_FETCH_LIMIT, skipCache = false) {
+        const normalizedQuery = getQueryCacheKey(query);
+        if (!normalizedQuery) return [];
+
         const cached = !skipCache ? getCachedQueryResult(query) : null;
         if (cached) return cached.slice(0, limit);
 
-        const payload = await fetchCards(
-          `${API_BASE}/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=relevance&dir=desc&format=json`
-        );
-        const cards = asArray(payload?.data).slice(0, limit);
-        if (!skipCache) setCachedQueryResult(query, cards);
-        return cards;
+        try {
+          const payload = await fetchCards(
+            `${API_BASE}/cards/search?q=${encodeURIComponent(query)}&unique=cards&order=relevance&dir=desc&format=json`
+          );
+          const cards = asArray(payload?.data).slice(0, limit);
+          if (!skipCache) setCachedQueryResult(query, cards);
+          return cards;
+        } catch (error) {
+          if (isIgnorableSimilarityQueryError(error)) return [];
+          throw error;
+        }
+      }
+
+      function isIgnorableSimilarityQueryError(error) {
+        const message = String(error?.message || '').toLowerCase();
+        if (message.includes('not_found')) return true;
+        if (message.includes('your query didn')) return true;
+        if (message.includes('didnt match any cards')) return true;
+        if (message.includes('didn')) return message.includes('match any cards');
+        const scryfallStatus = Number(message.match(/erro no scryfall:\s*(\d{3})/)?.[1] || 0);
+        return scryfallStatus === 404;
       }
 
       async function loadManaSymbols() {

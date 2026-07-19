@@ -373,11 +373,9 @@
             id="queryInput"
             type="text"
             placeholder="Digite nome, cor, tipo ou texto da carta"
-            autocomplete="on"
-            list="cardSuggestions"
+            autocomplete="off"
           />
           <ul id="suggestionsDropdown" class="suggestions-dropdown" hidden></ul>
-          <datalist id="cardSuggestions"></datalist>
           <button id="searchBtn" type="submit">Buscar</button>
         </form>
         <p class="status" id="status"></p>
@@ -976,7 +974,6 @@
       const form = document.getElementById('searchForm');
       const queryInput = document.getElementById('queryInput');
       const searchBtn = document.getElementById('searchBtn');
-      const suggestionList = document.getElementById('cardSuggestions');
       const suggestionsDropdown = document.getElementById('suggestionsDropdown');
       const statusEl = document.getElementById('status');
       const resultsEl = document.getElementById('results');
@@ -1063,9 +1060,6 @@
       }
 
       function clearSuggestions() {
-        while (suggestionList.firstChild) {
-          suggestionList.removeChild(suggestionList.firstChild);
-        }
         if (suggestionsDropdown) {
           while (suggestionsDropdown.firstChild) {
             suggestionsDropdown.removeChild(suggestionsDropdown.firstChild);
@@ -1079,10 +1073,6 @@
         const safeValues = asArray(values);
         const unique = [...new Set(safeValues.map((value) => cleanQuery(String(value))).filter(Boolean))];
         unique.slice(0, AUTOCOMPLETE_MAX).forEach((value) => {
-          const option = document.createElement('option');
-          option.value = value;
-          suggestionList.appendChild(option);
-
           const listItem = document.createElement('li');
           listItem.textContent = value;
           listItem.addEventListener('mousedown', (event) => {

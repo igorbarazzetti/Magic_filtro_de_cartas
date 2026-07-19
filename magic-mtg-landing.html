@@ -1161,10 +1161,21 @@
       }
 
       function isIgnorableSimilarityQueryError(error) {
+        const status = Number(error?.status || 0);
+        const code = safeLower(error?.code || '');
+        const details = safeLower(error?.details || '');
         const message = String(error?.message || '').toLowerCase();
+        const normalizedBody = safeLower(error?.rawBody || '');
+        if (status === 404 && (code === 'not_found' || /not_found/.test(details) || /not_found/.test(normalizedBody))) {
+          return true;
+        }
         if (message.includes('not_found')) return true;
+        if (details.includes('did not match any cards') || details.includes('didn\\'t match any cards') || details.includes('didnt match any cards')) return true;
+        if (normalizedBody.includes('did not match any cards') || normalizedBody.includes('didn\\'t match any cards') || normalizedBody.includes('didnt match any cards')) return true;
         if (message.includes('your query didn')) return true;
+        if (details.includes('your query didn')) return true;
         if (message.includes('didnt match any cards')) return true;
+        if (details.includes('match any cards')) return true;
         if (message.includes('didn')) return message.includes('match any cards');
         const scryfallStatus = Number(message.match(/erro no scryfall:\s*(\d{3})/)?.[1] || 0);
         return scryfallStatus === 404;
@@ -3377,17 +3388,28 @@
           const normalizedQuery = getQueryCacheKey(query);
           if (!normalizedQuery || queryHistory.has(normalizedQuery) || queryHistory.size >= queryLimit) return [];
           queryHistory.add(normalizedQuery);
-          const cards = await searchCardsByQuery(query, perQueryLimit);
-          cards.forEach((card) => dedupeCard(card, stage, query));
-          return cards;
+          try {
+            const cards = await searchCardsByQuery(query, perQueryLimit);
+            cards.forEach((card) => dedupeCard(card, stage, query));
+            return cards;
+          } catch (error) {
+            if (isIgnorableSimilarityQueryError(error)) return [];
+            throw error;
+          }
         };
+        const hardFallbackHistory = new Set();
         const runHardFallbackQuery = async (query, stage = 5) => {
           const normalizedQuery = getQueryCacheKey(query);
-          if (!normalizedQuery || queryHistory.has(normalizedQuery)) return [];
-          queryHistory.add(normalizedQuery);
-          const cards = await searchCardsByQuery(query, perQueryLimit);
-          cards.forEach((card) => dedupeCard(card, stage, query));
-          return cards;
+          if (!normalizedQuery || hardFallbackHistory.has(normalizedQuery)) return [];
+          hardFallbackHistory.add(normalizedQuery);
+          try {
+            const cards = await searchCardsByQuery(query, perQueryLimit);
+            cards.forEach((card) => dedupeCard(card, stage, query));
+            return cards;
+          } catch (error) {
+            if (isIgnorableSimilarityQueryError(error)) return [];
+            throw error;
+          }
         };
 
         const stagesByOrder = [1, 2, 3, 4];
@@ -3449,7 +3471,7 @@
             await runStage(stage, budgetedQueries);
           }
 
-          if (candidateMap.size === 0 && stageLimit >= 4) {
+          if (candidateMap.size < SIMILAR_LIMIT && stageLimit >= 4) {
             const broadTypeFallback =
               '(type:creature OR type:artifact OR type:enchantment OR type:planeswalker OR type:instant OR type:sorcery OR type:land)';
             const hardFallbackQueries = [
@@ -3461,7 +3483,12 @@
               joinQueryClauses('type:creature', nameExclusion),
               joinQueryClauses('type:artifact', nameExclusion),
               joinQueryClauses('type:planeswalker', nameExclusion),
-              nameExclusion || 'type:creature',
+              joinQueryClauses('type:enchantment', nameExclusion),
+              joinQueryClauses('type:instant', nameExclusion),
+              joinQueryClauses('type:sorcery', nameExclusion),
+              joinQueryClauses('type:land', nameExclusion),
+              joinQueryClauses('set:fin', nameExclusion),
+              'type:creature',
             ].filter(Boolean);
 
             for (const fallbackQuery of hardFallbackQueries) {
@@ -4697,6 +4724,7 @@
       async function rankAndRenderSimilarCards(seedCard, faceIndex = 0) {
         const normalizedFace = normalizeFaceIndex(seedCard, faceIndex);
         const seedProfile = buildCardProfile(seedCard, normalizedFace);
+        const nameExclusion = buildNameExclusion(seedProfile);
         const collectState = {
           candidateMap: new Map(),
           candidateMeta: new Map(),
@@ -4801,9 +4829,48 @@
         } else if (scored.length) {
           filtered = scored.slice(0, SIMILAR_LIMIT);
         } else {
-          renderStatus('Falha ao calcular semelhantes.', true);
-          similarCardsEl.innerHTML = '<div class="empty-state">Sem sugestão suficiente para esta carta.</div>';
-          return;
+          const emergencyTypeClause = seedProfile.mainType || 'creature';
+          const emergencyQueries = [
+            joinQueryClauses('type:' + quoteForQuery(emergencyTypeClause), 'lang:en', nameExclusion),
+            joinQueryClauses('type:creature', 'lang:en', nameExclusion),
+            joinQueryClauses('type:artifact', 'lang:en', nameExclusion),
+            joinQueryClauses('type:enchantment', 'lang:en', nameExclusion),
+            joinQueryClauses('(type:instant OR type:sorcery)', 'lang:en', nameExclusion),
+          ].filter(Boolean);
+
+          const emergencySet = new Set();
+          const emergencyCards = [];
+          for (const fallbackQuery of emergencyQueries) {
+            if (emergencyCards.length >= SIMILAR_LIMIT) break;
+            try {
+              const cards = await searchCardsByQuery(fallbackQuery, SIMILAR_CANDIDATE_FETCH_LIMIT, true);
+              cards.forEach((candidateCard) => {
+                const candidateKey = candidateCard?.oracle_id || candidateCard?.id;
+                if (!candidateCard || !candidateKey) return;
+                if (safeLower(candidateCard.name) === safeLower(seedProfile.name)) return;
+                if (candidateKey === seedProfile.oracleId || candidateKey === seedProfile.id) return;
+                if (emergencySet.has(candidateKey)) return;
+                emergencySet.add(candidateKey);
+                emergencyCards.push(candidateCard);
+              });
+            } catch {
+              // Não falha o fluxo por limite de busca de emergência.
+            }
+          }
+
+          const emergencyScored = buildRank(emergencyCards, { relaxMechanicMatch: true });
+          if (emergencyScored.length) {
+            const emergencyFiltered = emergencyScored.filter((entry) => entry.score >= SIMILARITY_RELAXED_SCORE);
+            filtered = (emergencyFiltered.length ? emergencyFiltered : emergencyScored).slice(0, SIMILAR_LIMIT);
+            usedExpandedPlan = true;
+            usedPlanLabel = 'estágio de emergência';
+            usedThreshold = SIMILARITY_RELAXED_SCORE;
+            renderSimilarNotice('Semântica inicial sem retorno; usando busca de emergência baseada em tipo.');
+          } else {
+            renderStatus('Falha ao calcular semelhantes.', true);
+            similarCardsEl.innerHTML = '<div class="empty-state">Sem sugestão suficiente para esta carta.</div>';
+            return;
+          }
         }
 
         clearCards(similarCardsEl);
@@ -4827,7 +4894,19 @@
         const res = await fetch(url, signal ? { signal } : undefined);
         if (!res.ok) {
           const body = await res.text();
-          throw new Error(`Erro no Scryfall: ${res.status} ${res.statusText} ${body}`);
+          let payload = null;
+          try {
+            payload = JSON.parse(body);
+          } catch {
+            payload = null;
+          }
+          const error = new Error(`Erro no Scryfall: ${res.status} ${res.statusText} ${body}`);
+          error.status = res.status;
+          error.code = payload?.code || null;
+          error.details = payload?.details || '';
+          error.rawBody = body;
+          error.payload = payload;
+          throw error;
         }
         return res.json();
       }

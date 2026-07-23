@@ -411,30 +411,30 @@
       const AUTOCOMPLETE_MAX = 12;
       const MANA_SYMBOLS_ENDPOINT = `${API_BASE}/symbology`;
       const SIMILARITY_WEIGHTS = {
-        primaryMechanic: 0.9,
-        mechanicBucket: 0.03,
-        text: 0.02,
-        type: 0.015,
-        color: 0.015,
-        cmc: 0.01,
-        role: 0.01,
-        rarity: 0,
+        primaryMechanic: 0.36,
+        mechanicBucket: 0.06,
+        text: 0.24,
+        type: 0.1,
+        color: 0.08,
+        cmc: 0.08,
+        role: 0.08,
+        rarity: 0.04,
       };
-      const SIMILARITY_MIN_PRIMARY_MECHANIC = 0.72;
-      const SIMILARITY_PRIMARY_MECHANIC_MISS_GUARD = 0.22;
-      const SIMILARITY_PRIMARY_MECHANIC_BIAS = 0.12;
+      const SIMILARITY_MIN_PRIMARY_MECHANIC = 0.68;
+      const SIMILARITY_PRIMARY_MECHANIC_MISS_GUARD = 0.16;
+      const SIMILARITY_PRIMARY_MECHANIC_BIAS = 0.08;
       const SIMILARITY_PRIMARY_STAGE2_GATE = 0.74;
-      const PRIMARY_MECHANIC_SEMANTIC_GATE = 0.84;
-      const PRIMARY_MECHANIC_SOFT_GATE = 0.68;
+      const PRIMARY_MECHANIC_SEMANTIC_GATE = 0.92;
+      const PRIMARY_MECHANIC_SOFT_GATE = 0.62;
       const PRIMARY_MECHANIC_RECALL_LIMIT = 2;
       const PRIMARY_MECHANIC_PRIORITY_MAX_BOOST = 0.22;
-      const PRIMARY_MECHANIC_PRIORITY_DIRECT_BONUS = 0.12;
-      const PRIMARY_MECHANIC_PRIORITY_CORE_BONUS = 0.08;
+      const PRIMARY_MECHANIC_PRIORITY_DIRECT_BONUS = 0.08;
+      const PRIMARY_MECHANIC_PRIORITY_CORE_BONUS = 0.06;
       const PRIMARY_MECHANIC_PRIORITY_BUCKET_BONUS = 0.04;
-      const PRIMARY_MECHANIC_TEXT_DOMINANCE_BOOST = 0.2;
-      const PRIMARY_MECHANIC_MISS_SOFTENING = 0.35;
+      const PRIMARY_MECHANIC_TEXT_DOMINANCE_BOOST = 0.1;
+      const PRIMARY_MECHANIC_MISS_SOFTENING = 0.72;
       const PRIMARY_MECHANIC_TOP_MIN = 0.68;
-      const PRIMARY_MECHANIC_MISS_PENALTY = 0.22;
+      const PRIMARY_MECHANIC_MISS_PENALTY = 0.12;
       const PRIMARY_MECHANIC_NO_AFFINITY_SCORE = 0.08;
       const PRIMARY_MECHANIC_BUCKET_BOOST = 0.16;
       const PRIMARY_MECHANIC_MATCH_ROUNDING_MIN = 0.58;
@@ -449,14 +449,14 @@
       const PRIMARY_MECHANIC_CORE_MATCH_SCORE = 0.86;
       const PRIMARY_MECHANIC_DIRECT_MATCH_SCORE = 0.96;
       const PRIMARY_MECHANIC_MATCH_FLOOR = 0.22;
-      const PRIMARY_MECHANIC_STRONG_TEXT_GUARD = 0.6;
+      const PRIMARY_MECHANIC_STRONG_TEXT_GUARD = 0.54;
       const PRIMARY_MECHANIC_STAGE2_MIN_UTILITY = 4;
       const PRIMARY_MECHANIC_STAGE1_QUERY_LIMIT = 4;
       const PRIMARY_MECHANIC_STAGE2_QUERY_LIMIT = 1;
       const PRIMARY_MECHANIC_STAGE3_EXTRA_QUERY_LIMIT = 2;
       const PRIMARY_MECHANIC_GATED_SCORE = 0.74;
       const PRIMARY_MECHANIC_ANCHOR_FLOOR = 0.24;
-      const PRIMARY_MECHANIC_HARD_MISMATCH_PENALTY = 0.34;
+      const PRIMARY_MECHANIC_HARD_MISMATCH_PENALTY = 0.16;
       const PRIMARY_MECHANIC_EXACT_MATCH_BONUS = 0.06;
       const PRIMARY_MECHANIC_ANCHOR_PENALTY = 0.2;
       const PRIMARY_MECHANIC_BONUS_MAX = 0.9;
@@ -478,7 +478,7 @@
       const CANDIDATE_STAGE3_TERM_LIMIT = 2;
       const SIMILARITY_WEIGHT_SUM = Object.values(SIMILARITY_WEIGHTS).reduce((acc, value) => acc + value, 0);
       const SIMILARITY_MIN_SCORE = 0.28;
-      const SIMILARITY_RELAXED_SCORE = 0.20;
+      const SIMILARITY_RELAXED_SCORE = 0.16;
       const SIMILARITY_REQUIRED_TOP = 4;
       const SIMILAR_CANDIDATE_FETCH_LIMIT = 70;
       const MAX_CANDIDATE_FETCH_QUERIES = 4;
@@ -3308,6 +3308,10 @@
         const primaryMechanicRecallClause = buildPrimaryMechanicRecallClause(seedProfile, 3, 12);
         const oracleFallbackClause = buildOracleFallbackClause(seedProfile, 4);
         const nameExclusion = buildNameExclusion(seedProfile);
+        const hasLifeDrainSeedSignature = uniqueValues(seedProfile?.eventSignatures || []).some((signature) => {
+          const signatureId = safeLower(typeof signature === 'string' ? signature : signature?.id || '');
+          return PRIMARY_MECHANIC_LIFEDRAIN_PRIORITY.has(signatureId);
+        });
 
         addQuery(
           joinQueryClauses(typeClause, colorClause, cmcClausePrimary, primaryMechanicExactClause, nameExclusion),
@@ -3349,6 +3353,19 @@
           joinQueryClauses(typeClause, cmcClauseFallback, primaryMechanicRecallClause, eventSignatureClause, primaryMechanicTextClause, oracleFallbackClause, nameExclusion),
           4
         ); // S4 (reserva causal+lexical)
+        if (hasLifeDrainSeedSignature) {
+          addQuery(
+            joinQueryClauses(
+              typeClause,
+              colorClause,
+              cmcClausePrimary,
+              buildEventSignatureClause(seedProfile, 2, 4),
+              nameExclusion
+            ),
+            2
+          ); // S2 (semântico de drenagem de vida)
+        }
+        addQuery(joinQueryClauses(typeClause, cmcClauseFallback, nameExclusion), 4); // S4 (base estrutural)
 
         const stages = {
           1: [],
@@ -4311,27 +4328,27 @@
         const mechanicLift = clamp(topMechanicScore || semanticConfidence, 0, 1);
         const mechanicBoost = clamp(
           (topMechanicScore >= PRIMARY_MECHANIC_HARD_ANCHOR_MIN
-            ? 0.36
+            ? 0.18
             : topMechanicScore >= PRIMARY_MECHANIC_SOFT_ANCHOR_MIN
-              ? 0.26
-              : 0.12) +
-            clamp((mechanicCount - 1) * 0.02, 0, 0.06) +
+              ? 0.12
+              : 0.08) +
+            clamp((mechanicCount - 1) * 0.02, 0, 0.04) +
             semanticConfidence * 0.08,
           0,
-          0.4
+          0.22
         );
         const bucketBoost = clamp(uniqueValues(Object.keys(seedProfile?.primaryMechanicBuckets || {})).length * 0.01, 0, 0.06);
         if (mechanicBoost <= 0 && bucketBoost <= 0) return base;
 
         base.primaryMechanic = clamp(Math.max(base.primaryMechanic + mechanicBoost, PRIMARY_MECHANIC_SOFT_ANCHOR_MIN), 0, 1);
         base.mechanicBucket = clamp(base.mechanicBucket + bucketBoost);
-        const compensation = (mechanicBoost + bucketBoost) * 0.15;
+        const compensation = (mechanicBoost + bucketBoost) * 0.1;
         base.type = clamp(base.type - compensation * 0.4, 0, 1);
         base.color = clamp(base.color - compensation * 0.25, 0, 1);
         base.cmc = clamp(base.cmc - compensation * 0.15, 0, 1);
         base.role = clamp(base.role - compensation * 0.08, 0, 1);
         if (topMechanicScore >= PRIMARY_MECHANIC_HARD_ANCHOR_MIN) {
-          base.text = clamp(base.text * 0.72, 0, 1);
+          base.text = clamp(base.text * 0.9, 0, 1);
           base.role = clamp(base.role * 0.85, 0, 1);
         }
         return base;
@@ -4427,10 +4444,22 @@
         const strongTopMatch = primaryMechanicAlignment.matchMode === 'direct' || topMechanicPriorityDemand && hasPrimaryTextMatch;
         const topBucketGap = hasMechanicBucketContinuity && !hasPrimaryTextMatch && !hasPrimaryEventMatch;
 
-        if (primaryMechanicAlignment.hardAnchor && !primaryMechanicAlignment.hasAffinity && !hasPrimaryTextMatch) {
+        if (
+          primaryMechanicAlignment.hardAnchor &&
+          !primaryMechanicAlignment.hasAffinity &&
+          !hasPrimaryTextMatch &&
+          !hasPrimaryEventMatch
+        ) {
           finalScore = clamp(finalScore * (1 - PRIMARY_MECHANIC_HARD_MISMATCH_PENALTY));
-        } else if (topMechanicPriorityDemand && !primaryMechanicAlignment.hasAffinity && !hasPrimaryTextMatch) {
+        } else if (
+          topMechanicPriorityDemand &&
+          !primaryMechanicAlignment.hasAffinity &&
+          !hasPrimaryTextMatch &&
+          !hasPrimaryEventMatch
+        ) {
           finalScore = clamp(finalScore * PRIMARY_MECHANIC_MISS_SOFTENING);
+        } else if (topMechanicPriorityDemand && hasPrimaryEventMatch && !hasPrimaryTextMatch) {
+          finalScore = clamp(finalScore + PRIMARY_MECHANIC_TEXT_DOMINANCE_BOOST);
         } else if (
           topMechanicPriorityDemand &&
           primaryMechanicAlignment.matchMode === 'bucket' &&
@@ -4473,6 +4502,8 @@
           reasonSet.add(`Mecânica principal priorizada alinhada: ${label}`);
         } else if (primaryMechanicAlignment.matchMode === 'core') {
           reasonSet.add('Padrão causal principal equivalente na mecânica principal (match estrutural).');
+        } else if (hasPrimaryEventMatch && (!primaryMechanicAlignment.matchMode || primaryMechanicAlignment.matchMode === 'none')) {
+          reasonSet.add('Padrão causal principal equivalente encontrado (vida/perda e ganho por morte de criatura).');
         } else if (primaryMechanicAlignment.matchMode === 'bucket') {
           reasonSet.add(`Compartilha família mecânica (${primaryMechanicAlignment.sharedBuckets.slice(0, 1).map(([bucket]) => bucketLabel(bucket)).join(' / ') || 'compatível'}).`);
         } else if (primaryMechanicAlignment.hardAnchor && !primaryMechanicAlignment.hasAffinity) {
@@ -4755,11 +4786,18 @@
             const hasPrimaryTextSupport = hasPrimaryMechanicTextSupport(seedProfile, candidateProfile, seedPrimaryMechanic);
             const alignment = evaluatePrimaryMechanicAlignment(seedProfile, candidateProfile);
             const hasMechanicAffinitySignal = alignment?.hasAffinity || alignment?.matchMode === 'core' || hasPrimaryTextSupport;
+            const sharedEventSignatures = getSharedEventSignatures(seedProfile, candidateProfile);
+            const hasLifeDrainMatch = sharedEventSignatures.some((signature) =>
+              ['sig_death_to_life_drain', 'sig_death_life_exchange', 'sig_life_drain_on_creature_dies', 'sig_creature_life_transfer'].includes(
+                safeLower(signature?.id || '')
+              )
+            );
+            const hasSemanticBridge = hasMechanicAffinitySignal || hasPrimaryTextSupport || hasLifeDrainMatch;
             const hasStrongMechanicAnchor = enforceAnchorHard
-              ? hasMechanicAffinitySignal && (alignment?.sharedBuckets?.length || hasPrimaryTextSupport)
-              : enforceAnchorSoft && hasMechanicAffinitySignal;
+              ? hasMechanicAffinitySignal && (alignment?.sharedBuckets?.length || hasPrimaryTextSupport || hasLifeDrainMatch)
+              : enforceAnchorSoft && hasSemanticBridge;
 
-            if ((enforceAnchorHard || enforceAnchorSoft) && evaluation.components?.primaryMechanic < anchorGate - anchorGateTolerance && !hasStrongMechanicAnchor) {
+            if ((enforceAnchorHard || enforceAnchorSoft) && evaluation.components?.primaryMechanic < anchorGate - anchorGateTolerance && !hasSemanticBridge) {
               continue;
             }
             if (enforceAnchorHard && !hasMechanicAffinitySignal && evaluation.components?.primaryMechanic >= anchorGate - 0.18 - anchorGateTolerance) {
